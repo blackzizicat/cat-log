@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piano</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: #222; color: #eee; font-family: sans-serif; }
+  #keys { position: relative; display: flex; width: min(96vw, 900px); height: 260px; touch-action: none; user-select: none; }
+  .white { flex: 1; background: #fff; border: 1px solid #333; border-radius: 0 0 6px 6px; box-sizing: border-box; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 8px; color: #888; font-size: 12px; }
+  .black { position: absolute; top: 0; width: 6%; height: 60%; background: #111; border-radius: 0 0 4px 4px; z-index: 1; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px; color: #aaa; font-size: 11px; box-sizing: border-box; }
+  .white.active { background: #9cf; }
+  .black.active { background: #36a; }
+  label { font-size: 14px; }
+</style>
+</head>
+<body>
+<div id="keys"></div>
+<label>Volume <input id="vol" type="range" min="0" max="1" step="0.01" value="0.5"></label>
+<script>
+const WHITE = [
+  ["C4", 261.63, "a"], ["D4", 293.66, "s"], ["E4", 329.63, "d"], ["F4", 349.23, "f"], ["G4", 392.00, "g"],
+  ["A4", 440.00, "h"], ["B4", 493.88, "j"], ["C5", 523.25, "k"], ["D5", 587.33, "l"], ["E5", 659.25, ";"],
+];
+// [name, frequency, key, index of the white key it sits after]
+const BLACK = [
+  ["C#4", 277.18, "w", 0], ["D#4", 311.13, "e", 1], ["F#4", 369.99, "t", 3], ["G#4", 415.30, "y", 4],
+  ["A#4", 466.16, "u", 5], ["C#5", 554.37, "o", 7], ["D#5", 622.25, "p", 8],
+];
+
+const keysEl = document.getElementById("keys");
+const vol = document.getElementById("vol");
+let ctx = null;
+const voices = new Map(); // id -> { osc, gain, el }
+const byKey = {};
+
+function start(id, freq, el) {
+  if (voices.has(id)) return;
+  ctx = ctx || new AudioContext();
+  if (ctx.state === "suspended") ctx.resume();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const now = ctx.currentTime;
+  osc.type = "triangle";
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, now);
+  gain.gain.linearRampToValueAtTime(Number(vol.value), now + 0.01);
+  gain.gain.exponentialRampToValueAtTime(Number(vol.value) * 0.4 + 0.001, now + 0.6);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start();
+  voices.set(id, { osc, gain, el });
+  el.classList.add("active");
+}
+
+function stop(id) {
+  const v = voices.get(id);
+  if (!v) return;
+  const now = ctx.currentTime;
+  v.gain.gain.cancelScheduledValues(now);
+  v.gain.gain.setValueAtTime(Math.max(v.gain.gain.value, 0.001), now);
+  v.gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+  v.osc.stop(now + 0.2);
+  v.el.classList.remove("active");
+  voices.delete(id);
+}
+
+function bind(el, name, freq, key) {
+  el.textContent = key.toUpperCase();
+  el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); start("p" + e.pointerId, freq, el); });
+  el.addEventListener("pointerup", (e) => stop("p" + e.pointerId));
+  el.addEventListener("pointercancel", (e) => stop("p" + e.pointerId));
+  byKey[key] = { freq, el };
+}
+
+WHITE.forEach(([name, freq, key]) => {
+  const el = document.createElement("div");
+  el.className = "white";
+  keysEl.appendChild(el);
+  bind(el, name, freq, key);
+});
+BLACK.forEach(([name, freq, key, after]) => {
+  const el = document.createElement("div");
+  el.className = "black";
+  el.style.left = ((after + 1) * 10 - 3) + "%";
+  keysEl.appendChild(el);
+  bind(el, name, freq, key);
+});
+
+addEventListener("keydown", (e) => {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = byKey[e.key.toLowerCase()];
+  if (k) start("k" + e.key.toLowerCase(), k.freq, k.el);
+});
+addEventListener("keyup", (e) => stop("k" + e.key.toLowerCase()));
+</script>
+</body>
+</html>
